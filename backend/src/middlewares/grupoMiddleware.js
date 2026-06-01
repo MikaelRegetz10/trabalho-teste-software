@@ -8,17 +8,19 @@ module.exports = async (req, res, next) => {
   }
 
   try {
-    const queryText = `
-      SELECT papel FROM membro_grupo 
-      WHERE grupo_id = $1 AND usuario_id = $2
-    `;
-    const resMembro = await db.query(queryText, [grupoId, req.userId]);
+    const { data: membroGrupo, error } = await db.supabase
+      .from('membro_grupo')
+      .select('papel')
+      .eq('grupo_id', grupoId)
+      .eq('usuario_id', req.userId);
 
-    if (resMembro.rows.length === 0) {
+    if (error) return res.status(500).json({ error: error.message });
+
+    if (!membroGrupo || membroGrupo.length === 0) {
       return res.status(403).json({ error: 'Acesso negado. Você não é membro deste grupo.' });
     }
 
-    req.userPapel = resMembro.rows[0].papel;
+    req.userPapel = membroGrupo[0].papel;
     req.grupoId = grupoId;
     next();
   } catch (err) {

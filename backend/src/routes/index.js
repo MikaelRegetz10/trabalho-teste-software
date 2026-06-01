@@ -1,6 +1,9 @@
 const express = require('express');
 const router = express.Router(); // <--- OBRIGATÓRIO SER ESSA LINHA
 
+// Importação global do arquivo de configuração do banco (contém db.supabase)
+const db = require('../config/db');
+
 const auth = require('../middlewares/authMiddleware');
 const grupoCheck = require('../middlewares/grupoMiddleware');
 
@@ -29,32 +32,56 @@ router.get('/grupos/:grupoId/tarefas', auth, grupoCheck, tareCtrl.listarTarefas)
 router.post('/grupos/:grupoId/tarefas', auth, grupoCheck, tareCtrl.criarTarefa);
 router.get('/grupos/:grupoId/historico', auth, grupoCheck, grupoCtrl.obterHistoricoGrupo);
 
-// Operações unitárias com injeção de verificação de grupo pelo ID parametrizado
+// Operações unitárias com injeção de verificação de grupo pelo ID parametrizado (Adaptadas para Supabase Client)
 router.get('/tarefas/:tarefaId', auth, async (req, res, next) => {
-  const t = await require('../config/db').query('SELECT grupo_id FROM tarefa WHERE id = $1', [req.params.tarefaId]);
-  if(t.rows.length === 0) return res.status(404).json({ error: 'Tarefa inexistente.' });
-  req.params.grupoId = t.rows[0].grupo_id;
+  const { data: t, error } = await db.supabase
+    .from('tarefa')
+    .select('grupo_id')
+    .eq('id', req.params.tarefaId);
+
+  if (error) return res.status(500).json({ error: error.message });
+  if (!t || t.length === 0) return res.status(404).json({ error: 'Tarefa inexistente.' });
+  
+  req.params.grupoId = t[0].grupo_id;
   next();
 }, grupoCheck, tareCtrl.obterTarefaCompleta);
 
 router.put('/tarefas/:tarefaId', auth, async (req, res, next) => {
-  const t = await require('../config/db').query('SELECT grupo_id FROM tarefa WHERE id = $1', [req.params.tarefaId]);
-  if(t.rows.length === 0) return res.status(404).json({ error: 'Tarefa inexistente.' });
-  req.params.grupoId = t.rows[0].grupo_id;
+  const { data: t, error } = await db.supabase
+    .from('tarefa')
+    .select('grupo_id')
+    .eq('id', req.params.tarefaId);
+
+  if (error) return res.status(500).json({ error: error.message });
+  if (!t || t.length === 0) return res.status(404).json({ error: 'Tarefa inexistente.' });
+  
+  req.params.grupoId = t[0].grupo_id;
   next();
 }, grupoCheck, tareCtrl.atualizarTarefa);
 
 router.patch('/tarefas/:tarefaId/status', auth, async (req, res, next) => {
-  const t = await require('../config/db').query('SELECT grupo_id FROM tarefa WHERE id = $1', [req.params.tarefaId]);
-  if(t.rows.length === 0) return res.status(404).json({ error: 'Tarefa inexistente.' });
-  req.params.grupoId = t.rows[0].grupo_id;
+  const { data: t, error } = await db.supabase
+    .from('tarefa')
+    .select('grupo_id')
+    .eq('id', req.params.tarefaId);
+
+  if (error) return res.status(500).json({ error: error.message });
+  if (!t || t.length === 0) return res.status(404).json({ error: 'Tarefa inexistente.' });
+  
+  req.params.grupoId = t[0].grupo_id;
   next();
 }, grupoCheck, tareCtrl.atualizarStatusTarefa);
 
 router.delete('/tarefas/:tarefaId', auth, async (req, res, next) => {
-  const t = await require('../config/db').query('SELECT grupo_id FROM tarefa WHERE id = $1', [req.params.tarefaId]);
-  if(t.rows.length === 0) return res.status(404).json({ error: 'Tarefa inexistente.' });
-  req.params.grupoId = t.rows[0].grupo_id;
+  const { data: t, error } = await db.supabase
+    .from('tarefa')
+    .select('grupo_id')
+    .eq('id', req.params.tarefaId);
+
+  if (error) return res.status(500).json({ error: error.message });
+  if (!t || t.length === 0) return res.status(404).json({ error: 'Tarefa inexistente.' });
+  
+  req.params.grupoId = t[0].grupo_id;
   next();
 }, grupoCheck, tareCtrl.excluirTarefa);
 

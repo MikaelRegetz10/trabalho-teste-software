@@ -5,52 +5,111 @@ exports.criarGrupo = async (req, res) => {
   const { nome_idoso, data_nascimento_idoso, observacoes_saude, nome_grupo } = req.body;
   if (!nome_idoso || !nome_grupo) return res.status(400).json({ error: 'Nome do idoso e do grupo são obrigatórios.' });
 
-  const client = await db.getClient();
   try {
-    await client.query('BEGIN');
-
     const idosoId = uuidv4();
-    await client.query(
-      `INSERT INTO idoso (id, nome, data_nascimento, observacoes_saude, criado_em, atualizado_em) VALUES ($1, $2, $3, $4, NOW(), NOW())`,
-      [idosoId, nome_idoso, data_nascimento_idoso, observacoes_saude]
-    );
-
     const grupoId = uuidv4();
-    await client.query(
-      `INSERT INTO grupo_familiar (id, idoso_id, nome, criado_em) VALUES ($1, $2, $3, NOW())`,
-      [grupoId, idosoId, nome_grupo]
-    );
 
-    await client.query(
-      `INSERT INTO membro_grupo (id, grupo_id, usuario_id, papel, entrou_em) VALUES ($1, $2, $3, 'administrador', NOW())`,
-      [uuidv4(), grupoId, req.userId]
-    );
+    // 1. Insere o idoso
+    const { error: idosoError } = await db.supabase
+      .from('idoso')
+      .insert([
+        { 
+          id: idosoId, 
+          nome: nome_idoso, 
+          data_nascimento: data_nascimento_idoso || null, 
+          observacoes_saude 
+        }
+      ]);
 
-    await client.query('COMMIT');
+    if (idosoError) return res.status(500).json({ error: 'Erro ao cadastrar idoso: ' + idosoError.message });
+
+    // 2. Insere o grupo familiar
+    const { error: grupoError } = await db.supabase
+      .from('grupo_familiar')
+      .insert([
+        { 
+          id: grupoId, 
+          idoso_id: idosoId, 
+          nome: nome_grupo 
+        }
+      ]);
+
+    if (grupoError) return res.status(500).json({ error: 'Erro ao criar grupo familiar: ' + grupoError.message });
+
+    // 3. Insere o criador como membro administrador do grupo
+    const { error: membroError } = await db.supabase
+      .from('membro_grupo')
+      .insert([
+        { 
+          id: uuidv4(), 
+          grupo_id: grupoId, 
+          usuario_id: req.userId, 
+          papel: 'administrador' 
+        }
+      ]);
+
+    if (membroError) return res.status(500).json({ error: 'Erro ao vincular membro ao grupo: ' + membroError.message });
+
     return res.status(201).json({ grupoId, nome_grupo, idosoId });
   } catch (err) {
-    await client.query('ROLLBACK');
-    return res.status(500).json({ error: 'Erro ao criar grupo familiar.' });
-  } finally {
-    client.release();
+    return res.status(500).json({ error: 'Erro interno ao criar grupo familiar.' });
   }
 };
 
 exports.obterGrupo = async (req, res) => {
   try {
-    const grupoRes = await db.query(
-      `SELECT g.id, g.nome, i.id as idoso_id, i.nome as idoso_nome, i.data_nascimento, i.observacoes_saude 
-       FROM grupo_familiar g JOIN idoso i ON g.idoso_id = i.id WHERE g.id = $1`, [req.grupoId]
-    );
-    
-    const membrosRes = await db.query(
-      `SELECT u.id, u.nome, u.email, m.papel, m.entrou_em 
-       FROM membro_grupo m JOIN usuario u ON m.usuario_id = u.id WHERE m.grupo_id = $1`, [req.grupoId]
-    );
+    // 1. Busca dados do grupo juntando com o idoso envolvido (Simulação de JOIN por tabelas relacionadas)
+    const { data: grupoData, error: grupoError } = await db.supabase
+      .from('grupo_familiar')
+      .select(`
+        id, 
+        nome, 
+        idoso:idoso_id (
+          id, 
+          nome, 
+          data_nascimento, 
+          observacoes_saude
+        )
+      `)
+      .eq('id', req.grupoId)
+      .single();
 
-    if (grupoRes.rows.length === 0) return res.status(404).json({ error: 'Grupo não encontrado.' });
+    if (grupoError || !grupoData) return res.status(404).json({ error: 'Grupo não encontrado.' });
 
-    return res.json({ ...grupoRes.rows[0], membros: membrosRes.rows });
+    // 2. Busca os membros associados ao grupo juntando dados da tabela de usuário
+    const { data: membrosData, error: membrosError } = await db.supabase
+      .from('membro_grupo')
+      .select(`
+        papel, 
+        entrou_em,
+        usuario:usuario_id (
+          id, 
+          nome, 
+          email
+        )
+      `)
+      .eq('grupo_id', req.grupoId);
+
+    if (membrosError) return res.status(500).json({ error: membrosError.message });
+
+    // Formata os objetos aninhados do Supabase para manter compatibilidade com o formato esperado pelo frontend/testes
+    const membrosFormatados = membrosData.map(m => ({
+      id: m.usuario?.id,
+      nome: m.usuario?.nome,
+      email: m.usuario?.email,
+      papel: m.papel,
+      entrou_em: m.entrou_em
+    }));
+
+    return res.json({
+      id: grupoData.id,
+      nome: grupoData.nome,
+      idoso_id: grupoData.idoso?.id,
+      idoso_nome: grupoData.idoso?.nome,
+      data_nascimento: grupoData.idoso?.data_nascimento,
+      observacoes_saude: grupoData.idoso?.observacoes_saude,
+      membros: membrosFormatados
+    });
   } catch (err) {
     return res.status(500).json({ error: 'Erro ao buscar dados do grupo.' });
   }
@@ -61,16 +120,34 @@ exports.adicionarMembroDireto = async (req, res) => {
   if (!usuario_id || !papel) return res.status(400).json({ error: 'Campos obrigatórios ausentes.' });
 
   try {
-    const userExist = await db.query('SELECT id FROM usuario WHERE id = $1', [usuario_id]);
-    if (userExist.rows.length === 0) return res.status(404).json({ error: 'Usuário não encontrado.' });
+    // Verifica se o usuário existe
+    const { data: userExist, error: userError } = await db.supabase
+      .from('usuario')
+      .select('id')
+      .eq('id', usuario_id);
 
-    await db.query(
-      `INSERT INTO membro_grupo (id, grupo_id, usuario_id, papel, entrou_em) VALUES ($1, $2, $3, $4, NOW())`,
-      [uuidv4(), req.grupoId, usuario_id, papel]
-    );
+    if (userError) return res.status(500).json({ error: userError.message });
+    if (!userExist || userExist.length === 0) return res.status(404).json({ error: 'Usuário não encontrado.' });
+
+    // Adiciona o vínculo de membro
+    const { error: insertError } = await db.supabase
+      .from('membro_grupo')
+      .insert([
+        { 
+          id: uuidv4(), 
+          grupo_id: req.grupoId, 
+          usuario_id, 
+          papel 
+        }
+      ]);
+
+    if (insertError) {
+      if (insertError.code === '23505') return res.status(409).json({ error: 'Usuário já é membro deste grupo.' });
+      return res.status(500).json({ error: insertError.message });
+    }
+
     return res.status(201).json({ message: 'Membro adicionado com sucesso.' });
   } catch (err) {
-    if (err.code === '23505') return res.status(409).json({ error: 'Usuário já é membro deste grupo.' });
     return res.status(500).json({ error: 'Erro ao adicionar membro.' });
   }
 };
@@ -80,8 +157,15 @@ exports.removerMembro = async (req, res) => {
   const { usuarioId } = req.params;
 
   try {
-    const result = await db.query('DELETE FROM membro_grupo WHERE grupo_id = $1 AND usuario_id = $2', [req.grupoId, usuarioId]);
-    if (result.rowCount === 0) return res.status(404).json({ error: 'Membro não encontrado no grupo.' });
+    const { data, error, count } = await db.supabase
+      .from('membro_grupo')
+      .delete({ count: 'exact' })
+      .eq('grupo_id', req.grupoId)
+      .eq('usuario_id', usuarioId);
+
+    if (error) return res.status(500).json({ error: error.message });
+    if (count === 0) return res.status(404).json({ error: 'Membro não encontrado no grupo.' });
+
     return res.json({ message: 'Membro removido com sucesso.' });
   } catch (err) {
     return res.status(500).json({ error: 'Erro ao remover membro.' });
@@ -90,18 +174,39 @@ exports.removerMembro = async (req, res) => {
 
 exports.obterHistoricoGrupo = async (req, res) => {
   try {
-    const queryText = `
-      SELECT h.id, h.acao, h.detalhe, h.realizado_em,
-             u.id as usuario_id, u.nome as usuario_nome,
-             t.id as tarefa_id, t.titulo as tarefa_titulo
-      FROM historico_tarefa h
-      JOIN usuario u ON h.usuario_id = u.id
-      JOIN tarefa t ON h.tarefa_id = t.id
-      WHERE t.grupo_id = $1
-      ORDER BY h.realizado_em DESC
-    `;
-    const result = await db.query(queryText, [req.grupoId]);
-    return res.json(result.rows);
+    // Busca histórico utilizando sintaxe de relacionamentos do Supabase Client para imitar os JOINs
+    const { data: historico, error } = await db.supabase
+      .from('historico_tarefa')
+      .select(`
+        id, 
+        acao, 
+        detalhe, 
+        realizado_em,
+        usuario:usuario_id (id, nome),
+        tarefa:tarefa_id (id, titulo, grupo_id)
+      `)
+      .from('historico_tarefa')
+      // Filtramos indiretamente garantindo que a tarefa pertence ao grupo atual
+      .eq('tarefa.grupo_id', req.grupoId)
+      .order('realizado_em', { ascending: false });
+
+    if (error) return res.status(500).json({ error: error.message });
+
+    // Como o Supabase filtra após a junção estrutural, limpamos os resultados nulos decorrentes do filtro na relação tarefa
+    const historicoFiltradoEFormatado = historico
+      .filter(h => h.tarefa !== null)
+      .map(h => ({
+        id: h.id,
+        acao: h.acao,
+        detalhe: h.detalhe,
+        realizado_em: h.realizado_em,
+        usuario_id: h.usuario?.id,
+        usuario_nome: h.usuario?.nome,
+        tarefa_id: h.tarefa?.id,
+        tarefa_titulo: h.tarefa?.titulo
+      }));
+
+    return res.json(historicoFiltradoEFormatado);
   } catch (err) {
     return res.status(500).json({ error: 'Erro ao buscar histórico do grupo.' });
   }

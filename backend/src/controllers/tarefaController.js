@@ -1,26 +1,38 @@
 const db = require('../config/db');
 const { v4: uuidv4 } = require('uuid');
 
-// Validador auxiliar de regras de negócio
+// Validador auxiliar de regras de negócio adaptado para o Supabase Client
 async function validarMembroGrupo(grupoId, usuarioId) {
-  const res = await db.query('SELECT id FROM membro_grupo WHERE grupo_id = $1 AND usuario_id = $2', [grupoId, usuarioId]);
-  return res.rows.length > 0;
+  const { data, error } = await db.supabase
+    .from('membro_grupo')
+    .select('id')
+    .eq('grupo_id', grupoId)
+    .eq('usuario_id', usuarioId);
+
+  if (error) return false;
+  return data && data.length > 0;
 }
 
 exports.listarTarefas = async (req, res) => {
   const { status, responsavel_id, data_inicio, data_fim } = req.query;
-  let queryText = 'SELECT * FROM tarefa WHERE grupo_id = $1';
-  const params = [req.grupoId];
-  let counter = 2;
-
-  if (status) { queryText += ` AND status = $${counter++}`; params.push(status); }
-  if (responsavel_id) { queryText += ` AND responsavel_id = $${counter++}`; params.push(responsavel_id); }
-  if (data_inicio) { queryText += ` AND data_hora_execucao >= $${counter++}`; params.push(data_inicio); }
-  if (data_fim) { queryText += ` AND data_hora_execucao <= $${counter++}`; params.push(data_fim); }
-
+  
   try {
-    const result = await db.query(queryText, params);
-    return res.json(result.rows);
+    // Inicializa a query básica filtrando obrigatoriamente pelo grupo logado
+    let query = db.supabase
+      .from('tarefa')
+      .select('*')
+      .eq('grupo_id', req.grupoId);
+
+    // Adiciona dinamicamente os filtros condicionais enviados por query string
+    if (status) query = query.eq('status', status);
+    if (responsavel_id) query = query.eq('responsavel_id', responsavel_id);
+    if (data_inicio) query = query.gte('data_hora_execucao', data_inicio); // gte: maior ou igual que (>=)
+    if (data_fim) query = query.lte('data_hora_execucao', data_fim);       // lte: menor ou igual que (<=)
+
+    const { data: tarefas, error } = await query;
+
+    if (error) return res.status(500).json({ error: error.message });
+    return res.json(tarefas);
   } catch (err) {
     return res.status(500).json({ error: 'Erro ao listar tarefas.' });
   }
@@ -39,48 +51,107 @@ exports.criarTarefa = async (req, res) => {
     if (!pertenceAoGrupo) return res.status(400).json({ error: 'O responsável pela tarefa deve pertencer ao grupo familiar.' });
   } catch (err) { return res.status(500).json({ error: 'Erro de validação de dados.' }); }
 
-  const client = await db.getClient();
   try {
-    await client.query('BEGIN');
     const tarefaId = uuidv4();
 
-    const insertTarefa = `
-      INSERT INTO tarefa (id, grupo_id, idoso_id, criado_por, responsavel_id, titulo, descricao, data_hora_execucao, status, e_critica, antecedencia_min, criado_em, atualizado_em)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'pendente', $9, $10, NOW(), NOW())
-    `;
-    await client.query(insertTarefa, [tarefaId, req.grupoId, idoso_id, req.userId, responsavel_id, titulo, descricao, data_hora_execucao, e_critica || false, antecedencia_min]);
+    // 1. Cria a tarefa no sistema
+    const { error: tarefaError } = await db.supabase
+      .from('tarefa')
+      .insert([
+        {
+          id: tarefaId,
+          grupo_id: req.grupoId,
+          idoso_id,
+          criado_por: req.userId,
+          responsavel_id,
+          titulo,
+          descricao,
+          data_hora_execucao,
+          status: 'pendente',
+          e_critica: e_critica || false,
+          antecedencia_min
+        }
+      ]);
 
-    await client.query(
-      `INSERT INTO historico_tarefa (id, tarefa_id, usuario_id, acao, detalhe, realizado_em) VALUES ($1, $2, $3, 'criacao', 'Tarefa criada no sistema.', NOW())`,
-      [uuidv4(), tarefaId, req.userId]
-    );
+    if (tarefaError) return res.status(500).json({ error: 'Erro ao persistir a tarefa: ' + tarefaError.message });
 
+    // 2. Registra a criação no histórico de tarefas
+    const { error: historicoError } = await db.supabase
+      .from('historico_tarefa')
+      .insert([
+        {
+          id: uuidv4(),
+          tarefa_id: tarefaId,
+          usuario_id: req.userId,
+          acao: 'criacao',
+          detalhe: 'Tarefa criada no sistema.'
+        }
+      ]);
+
+    if (historicoError) return res.status(500).json({ error: 'Erro ao salvar histórico: ' + historicoError.message });
+
+    // 3. Calcula o agendamento da notificação baseando-se na antecedência em milissegundos
     const agendadoPara = new Date(new Date(data_hora_execucao).getTime() - (antecedencia_min * 60000));
-    await client.query(
-      `INSERT INTO notificacao (id, tarefa_id, usuario_id, agendado_para, enviada, tentativa, criado_em) VALUES ($1, $2, $3, $4, false, 0, NOW())`,
-      [uuidv4(), tarefaId, responsavel_id, agendadoPara]
-    );
+    
+    const { error: notificacaoError } = await db.supabase
+      .from('notificacao')
+      .insert([
+        {
+          id: uuidv4(),
+          tarefa_id: tarefaId,
+          usuario_id: responsavel_id,
+          agendado_para: agendadoPara.toISOString(),
+          enviada: false,
+          tentativa: 0
+        }
+      ]);
 
-    await client.query('COMMIT');
+    if (notificacaoError) return res.status(500).json({ error: 'Erro ao agendar notificação: ' + notificacaoError.message });
+
     return res.status(201).json({ message: 'Tarefa criada com sucesso.', tarefaId });
   } catch (err) {
-    await client.query('ROLLBACK');
-    return res.status(500).json({ error: 'Erro ao persistir a tarefa.' });
-  } finally {
-    client.release();
+    return res.status(500).json({ error: 'Erro ao processar a criação da tarefa.' });
   }
 };
 
 exports.obterTarefaCompleta = async (req, res) => {
   const { tarefaId } = req.params;
   try {
-    const tarefaRes = await db.query('SELECT * FROM tarefa WHERE id = $1 AND grupo_id = $2', [tarefaId, req.grupoId]);
-    if (tarefaRes.rows.length === 0) return res.status(404).json({ error: 'Tarefa não localizada no grupo.' });
+    // 1. Busca os dados da tarefa filtrando pelo ID e validando o vínculo com o grupo
+    const { data: tarefas, error: tarefaError } = await db.supabase
+      .from('tarefa')
+      .select('*')
+      .eq('id', tarefaId)
+      .eq('grupo_id', req.grupoId);
 
-    const historicoRes = await db.query('SELECT * FROM historico_tarefa WHERE tarefa_id = $1 ORDER BY realizado_em DESC', [tarefaId]);
-    const notificacoesRes = await db.query('SELECT * FROM notificacao WHERE tarefa_id = $1 ORDER BY agendado_para ASC', [tarefaId]);
+    if (tarefaError) return res.status(500).json({ error: tarefaError.message });
+    if (!tarefas || tarefas.length === 0) return res.status(404).json({ error: 'Tarefa não localizada no grupo.' });
 
-    return res.json({ ...tarefaRes.rows[0], historico: historicoRes.rows, notificacoes: notificacoesRes.rows });
+    const tarefa = tarefas[0];
+
+    // 2. Busca o histórico da tarefa ordenando por data decrescente
+    const { data: historico, error: histError } = await db.supabase
+      .from('historico_tarefa')
+      .select('*')
+      .eq('tarefa_id', tarefaId)
+      .order('realizado_em', { ascending: false });
+
+    if (histError) return res.status(500).json({ error: histError.message });
+
+    // 3. Busca os agendamentos de notificações ordenando por data crescente
+    const { data: notificacoes, error: notifError } = await db.supabase
+      .from('notificacao')
+      .select('*')
+      .eq('tarefa_id', tarefaId)
+      .order('agendado_para', { ascending: true });
+
+    if (notifError) return res.status(500).json({ error: notifError.message });
+
+    return res.json({ 
+      ...tarefa, 
+      historico: historico || [], 
+      notificacoes: notificacoes || [] 
+    });
   } catch (err) {
     return res.status(500).json({ error: 'Erro ao buscar dados da tarefa.' });
   }
@@ -91,10 +162,17 @@ exports.atualizarTarefa = async (req, res) => {
   const { titulo, descricao, data_hora_execucao, responsavel_id, e_critica, antecedencia_min } = req.body;
 
   try {
-    const tRes = await db.query('SELECT criado_por FROM tarefa WHERE id = $1 AND grupo_id = $2', [tarefaId, req.grupoId]);
-    if (tRes.rows.length === 0) return res.status(404).json({ error: 'Tarefa não encontrada.' });
+    // Valida se a tarefa existe e captura quem a criou
+    const { data: tarefas, error: fetchError } = await db.supabase
+      .from('tarefa')
+      .select('criado_por')
+      .eq('id', tarefaId)
+      .eq('grupo_id', req.grupoId);
+
+    if (fetchError) return res.status(500).json({ error: fetchError.message });
+    if (!tarefas || tarefas.length === 0) return res.status(404).json({ error: 'Tarefa não encontrada.' });
     
-    if (tRes.rows[0].criado_por !== req.userId && req.userPapel !== 'administrador') {
+    if (tarefas[0].criado_por !== req.userId && req.userPapel !== 'administrador') {
       return res.status(403).json({ error: 'Ação permitida apenas para o criador ou administradores.' });
     }
 
@@ -104,38 +182,59 @@ exports.atualizarTarefa = async (req, res) => {
     }
   } catch (e) { return res.status(500).json({ error: 'Erro nas validações de edição.' }); }
 
-  const client = await db.getClient();
   try {
-    await client.query('BEGIN');
-    const updateText = `
-      UPDATE tarefa SET titulo = COALESCE($1, titulo), descricao = COALESCE($2, descricao), 
-      data_hora_execucao = COALESCE($3, data_hora_execucao), responsavel_id = COALESCE($4, responsavel_id),
-      e_critica = COALESCE($5, e_critica), antecedencia_min = COALESCE($6, antecedencia_min), atualizado_em = NOW()
-      WHERE id = $7 RETURNING *
-    `;
-    const resUpdate = await client.query(updateText, [titulo, descricao, data_hora_execucao, responsavel_id, e_critica, antecedencia_min, tarefaId]);
+    // 1. Atualiza as propriedades enviadas na tarefa (Supabase ignora campos definidos como undefined)
+    const { data: updatedTarefas, error: updateError } = await db.supabase
+      .from('tarefa')
+      .update({
+        titulo,
+        descricao,
+        data_hora_execucao,
+        responsavel_id,
+        e_critica,
+        antecedencia_min,
+        atualizado_em: new Date().toISOString()
+      })
+      .eq('id', tarefaId)
+      .select('*');
 
-    await client.query(
-      `INSERT INTO historico_tarefa (id, tarefa_id, usuario_id, acao, detalhe, realizado_em) VALUES ($1, $2, $3, 'edicao', 'Modificação nas propriedades da tarefa.', NOW())`,
-      [uuidv4(), tarefaId, req.userId]
-    );
+    if (updateError) return res.status(500).json({ error: updateError.message });
 
+    // 2. Insere histórico de modificação
+    const { error: histError } = await db.supabase
+      .from('historico_tarefa')
+      .insert([
+        {
+          id: uuidv4(),
+          tarefa_id: tarefaId,
+          usuario_id: req.userId,
+          acao: 'edicao',
+          detalhe: 'Modificação nas propriedades da tarefa.'
+        }
+      ]);
+
+    if (histError) return res.status(500).json({ error: histError.message });
+
+    // 3. Se houver reajuste no horário ou na antecedência mínima, recalcula a notificação pendente
     if (data_hora_execucao || antecedencia_min) {
-      const t = resUpdate.rows[0];
+      const t = updatedTarefas[0];
       const agendadoPara = new Date(new Date(t.data_hora_execucao).getTime() - (t.antecedencia_min * 60000));
-      await client.query(
-        `UPDATE notificacao SET agendado_para = $1, enviado = false WHERE tarefa_id = $2 AND enviado = false`,
-        [agendadoPara, tarefaId]
-      );
+      
+      const { error: notifError } = await db.supabase
+        .from('notificacao')
+        .update({ 
+          agendado_para: agendadoPara.toISOString(), 
+          enviada: false 
+        })
+        .eq('tarefa_id', tarefaId)
+        .eq('enviada', false);
+
+      if (notifError) return res.status(500).json({ error: notifError.message });
     }
 
-    await client.query('COMMIT');
     return res.json({ message: 'Tarefa alterada com sucesso.' });
   } catch (err) {
-    await client.query('ROLLBACK');
     return res.status(500).json({ error: 'Erro ao processar atualização da tarefa.' });
-  } finally {
-    client.release();
   }
 };
 
@@ -147,27 +246,48 @@ exports.atualizarStatusTarefa = async (req, res) => {
     return res.status(400).json({ error: 'Status informado é inválido.' });
   }
 
-  const client = await db.getClient();
   try {
-    await client.query('BEGIN');
-    const tRes = await client.query('SELECT e_critica, status FROM tarefa WHERE id = $1 AND grupo_id = $2', [tarefaId, req.grupoId]);
-    if (tRes.rows.length === 0) return res.status(404).json({ error: 'Tarefa não encontrada.' });
+    // Valida a existência da tarefa no respectivo grupo
+    const { data: tarefas, error: fetchError } = await db.supabase
+      .from('tarefa')
+      .select('e_critica, status')
+      .eq('id', tarefaId)
+      .eq('grupo_id', req.grupoId);
+
+    if (fetchError) return res.status(500).json({ error: fetchError.message });
+    if (!tarefas || tarefas.length === 0) return res.status(404).json({ error: 'Tarefa não encontrada.' });
 
     const acao = status === 'concluida' ? 'conclusao' : (status === 'cancelada' ? 'cancelamento' : 'edicao');
 
-    await client.query('UPDATE tarefa SET status = $1, atualizado_em = NOW() WHERE id = $2', [status, tarefaId]);
-    await client.query(
-      `INSERT INTO historico_tarefa (id, tarefa_id, usuario_id, acao, detalhe, realizado_em) VALUES ($1, $2, $3, $4, $5, NOW())`,
-      [uuidv4(), tarefaId, req.userId, acao, `Status alterado explicitamente para ${status}.`, NOW()]
-    );
+    // 1. Atualiza o status da tarefa
+    const { error: updateError } = await db.supabase
+      .from('tarefa')
+      .update({ 
+        status, 
+        atualizado_em: new Date().toISOString() 
+      })
+      .eq('id', tarefaId);
 
-    await client.query('COMMIT');
+    if (updateError) return res.status(500).json({ error: updateError.message });
+
+    // 2. Adiciona o evento de alteração ao histórico
+    const { error: histError } = await db.supabase
+      .from('historico_tarefa')
+      .insert([
+        {
+          id: uuidv4(),
+          tarefa_id: tarefaId,
+          usuario_id: req.userId,
+          acao,
+          detalhe: `Status alterado explicitamente para ${status}.`
+        }
+      ]);
+
+    if (histError) return res.status(500).json({ error: histError.message });
+
     return res.json({ message: `Status alterado com sucesso para ${status}.` });
   } catch (err) {
-    await client.query('ROLLBACK');
     return res.status(500).json({ error: 'Erro ao atualizar status.' });
-  } finally {
-    client.release();
   }
 };
 
@@ -175,27 +295,31 @@ exports.excluirTarefa = async (req, res) => {
   const { tarefaId } = req.params;
 
   try {
-    const tRes = await db.query('SELECT criado_por FROM tarefa WHERE id = $1 AND grupo_id = $2', [tarefaId, req.grupoId]);
-    if (tRes.rows.length === 0) return res.status(404).json({ error: 'Tarefa não encontrada.' });
+    // Valida se a tarefa existe e quem possui a posse dela
+    const { data: tarefas, error: fetchError } = await db.supabase
+      .from('tarefa')
+      .select('criado_por')
+      .eq('id', tarefaId)
+      .eq('grupo_id', req.grupoId);
 
-    if (tRes.rows[0].criado_por !== req.userId && req.userPapel !== 'administrador') {
+    if (fetchError) return res.status(500).json({ error: fetchError.message });
+    if (!tarefas || tarefas.length === 0) return res.status(404).json({ error: 'Tarefa não encontrada.' });
+
+    if (tarefas[0].criado_por !== req.userId && req.userPapel !== 'administrador') {
       return res.status(403).json({ error: 'Apenas o criador ou administradores do grupo possuem permissão para excluir.' });
     }
 
-    const client = await db.getClient();
-    try {
-      await client.query('BEGIN');
-      await client.query('DELETE FROM notificacao WHERE tarefa_id = $1', [tarefaId]);
-      await client.query('DELETE FROM historico_tarefa WHERE tarefa_id = $1', [tarefaId]);
-      await client.query('DELETE FROM tarefa WHERE id = $1', [tarefaId]);
-      await client.query('COMMIT');
-      return res.json({ message: 'Tarefa removida permanentemente do sistema.' });
-    } catch (e) {
-      await client.query('ROLLBACK');
-      return res.status(500).json({ error: 'Erro ao remover registros dependentes.' });
-    } finally {
-      client.release();
-    }
+    // Deleta os registros vinculados sequencialmente em cascata (caso não configurado via ON DELETE CASCADE no banco)
+    const { error: notifDelError } = await db.supabase.from('notificacao').delete().eq('tarefa_id', tarefaId);
+    if (notifDelError) return res.status(500).json({ error: notifDelError.message });
+
+    const { error: histDelError } = await db.supabase.from('historico_tarefa').delete().eq('tarefa_id', tarefaId);
+    if (histDelError) return res.status(500).json({ error: histDelError.message });
+
+    const { error: tarefaDelError } = await db.supabase.from('tarefa').delete().eq('id', tarefaId);
+    if (tarefaDelError) return res.status(500).json({ error: tarefaDelError.message });
+
+    return res.json({ message: 'Tarefa removida permanentemente do sistema.' });
   } catch (err) {
     return res.status(500).json({ error: 'Erro interno ao tentar deletar a tarefa.' });
   }

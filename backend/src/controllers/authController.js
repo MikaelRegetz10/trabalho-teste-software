@@ -8,19 +8,29 @@ exports.register = async (req, res) => {
   if (!nome || !email || !senha) return res.status(400).json({ error: 'Campos obrigatórios ausentes.' });
 
   try {
-    const userExists = await db.query('SELECT id FROM usuario WHERE email = $1', [email]);
-    if (userExists.rows.length > 0) return res.status(409).json({ error: 'E-mail já cadastrado.' });
+    const { data: userExists, error: checkError } = await db.supabase
+      .from('usuario')
+      .select('id')
+      .eq('email', email);
+
+    if (checkError) return res.status(500).json({ error: checkError.message });
+    if (userExists && userExists.length > 0) return res.status(409).json({ error: 'E-mail já cadastrado.' });
 
     const senhaHash = await bcrypt.hash(senha, 10);
     const id = uuidv4();
 
-    const insertText = `
-      INSERT INTO usuario (id, nome, email, senha_hash, telefone, criado_em, atualizado_em)
-      VALUES ($1, $2, $3, $4, $5, NOW(), NOW()) RETURNING id, email
-    `;
-    const newUser = await db.query(insertText, [id, nome, email, senhaHash, telefone]);
+    const { data: newUser, error: insertError } = await db.supabase
+      .from('usuario')
+      .insert([
+        { id, nome, email, senha_hash: senhaHash, telefone }
+      ])
+      .select('id', 'email')
+      .single();
 
-    const token = jwt.sign({ userId: newUser.rows[0].id, email: newUser.rows[0].email }, process.env.JWT_SECRET, { expiresIn: '1d' });
+    if (insertError) return res.status(500).json({ error: insertError.message });
+
+    const token = jwt.sign({ userId: newUser.id, email: newUser.email }, process.env.JWT_SECRET, { expiresIn: '1d' });
+
     return res.status(201).json({ token });
     } catch (err) {
         return res.status(500).json({ error: err.message, detalhe: err.hint || 'Sem dicas' });    }
@@ -31,14 +41,27 @@ exports.login = async (req, res) => {
   if (!email || !senha) return res.status(400).json({ error: 'E-mail e senha são obrigatórios.' });
 
   try {
-    const result = await db.query('SELECT * FROM usuario WHERE email = $1', [email]);
-    if (result.rows.length === 0) return res.status(401).json({ error: 'Credenciais inválidas.' });
+    const { data: usuarios, error: fetchError } = await db.supabase
+      .from('usuario')
+      .select('*')
+      .eq('email', email);
 
-    const usuario = result.rows[0];
+    if (fetchError) return res.status(500).json({ error: fetchError.message });
+
+    if (!usuarios || usuarios.length === 0) {
+      return res.status(401).json({ error: 'Credenciais inválidas.' });
+    }
+
+    const usuario = usuarios[0];
     const validSenha = await bcrypt.compare(senha, usuario.senha_hash);
     if (!validSenha) return res.status(401).json({ error: 'Credenciais inválidas.' });
 
-    const token = jwt.sign({ userId: usuario.id, email: usuario.email }, process.env.JWT_SECRET, { expiresIn: '1d' });
+    const token = jwt.sign(
+      { userId: usuario.id, email: usuario.email }, 
+      process.env.JWT_SECRET, 
+      { expiresIn: '1d' }
+    );
+    
     return res.json({ token });
   } catch (err) {
     return res.status(500).json({ error: 'Erro interno no servidor.' });
