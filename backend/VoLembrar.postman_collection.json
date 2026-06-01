@@ -1,0 +1,109 @@
+{
+  "info": {
+    "_postman_id": "b1a2c3d4-volembrar-collection",
+    "name": "VôLembrar - API",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "version": "1.0.0",
+    "description": "Coleção com endpoints principais do backend VôLembrar"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:3000" },
+    { "key": "token", "value": "" },
+    { "key": "grupoId", "value": "" },
+    { "key": "conviteToken", "value": "" },
+    { "key": "tarefaId", "value": "" }
+  ],
+  "item": [
+    {
+      "name": "Register - POST /auth/register",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"nome\": \"Fulano\",\n  \"email\": \"fulano@example.com\",\n  \"senha\": \"senha123\",\n  \"telefone\": \"11999999999\"\n}"
+        },
+        "url": { "raw": "{{baseUrl}}/auth/register", "host": ["{{baseUrl}}"], "path": ["auth","register"] }
+      }
+    },
+    {
+      "name": "Login - POST /auth/login",
+      "request": {
+        "method": "POST",
+        "header": [ { "key": "Content-Type", "value": "application/json" } ],
+        "body": { "mode": "raw", "raw": "{\n  \"email\": \"fulano@example.com\",\n  \"senha\": \"senha123\"\n}" },
+        "url": { "raw": "{{baseUrl}}/auth/login", "host": ["{{baseUrl}}"], "path": ["auth","login"] }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "if (pm.response.code === 200 || pm.response.code === 201) {",
+              "  var json = pm.response.json();",
+              "  if (json && json.token) { pm.environment.set('token', json.token); }",
+              "}"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Criar Grupo - POST /grupos",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" },
+          { "key": "Authorization", "value": "Bearer {{token}}" }
+        ],
+        "body": { "mode": "raw", "raw": "{\n  \"nome_idoso\": \"Sr. José\",\n  \"data_nascimento_idoso\": \"1945-05-20\",\n  \"observacoes_saude\": \"Diabético\",\n  \"nome_grupo\": \"Família Silva\"\n}" },
+        "url": { "raw": "{{baseUrl}}/grupos", "host": ["{{baseUrl}}"], "path": ["grupos"] }
+      }
+    },
+    {
+      "name": "Obter Grupo - GET /grupos/:grupoId",
+      "request": {
+        "method": "GET",
+        "header": [ { "key": "Authorization", "value": "Bearer {{token}}" } ],
+        "url": { "raw": "{{baseUrl}}/grupos/{{grupoId}}", "host": ["{{baseUrl}}"], "path": ["grupos","{{grupoId}}"] }
+      }
+    },
+    {
+      "name": "Gerar Convite - POST /grupos/:grupoId/convites",
+      "request": {
+        "method": "POST",
+        "header": [ { "key": "Content-Type", "value": "application/json" }, { "key": "Authorization", "value": "Bearer {{token}}" } ],
+        "body": { "mode": "raw", "raw": "{\n  \"email_convidado\": \"cuidador@example.com\"\n}" },
+        "url": { "raw": "{{baseUrl}}/grupos/{{grupoId}}/convites", "host": ["{{baseUrl}}"], "path": ["grupos","{{grupoId}}","convites"] }
+      }
+    },
+    {
+      "name": "Aceitar Convite - POST /convites/:token/aceitar",
+      "request": {
+        "method": "POST",
+        "header": [ { "key": "Authorization", "value": "Bearer {{token}}" } ],
+        "url": { "raw": "{{baseUrl}}/convites/{{conviteToken}}/aceitar", "host": ["{{baseUrl}}"], "path": ["convites","{{conviteToken}}","aceitar"] }
+      }
+    },
+    {
+      "name": "Criar Tarefa - POST /grupos/:grupoId/tarefas",
+      "request": {
+        "method": "POST",
+        "header": [ { "key": "Content-Type", "value": "application/json" }, { "key": "Authorization", "value": "Bearer {{token}}" } ],
+        "body": { "mode": "raw", "raw": "{\n  \"idoso_id\": \"<idosoId-aqui>\",\n  \"responsavel_id\": \"<usuarioId-responsavel>\",\n  \"titulo\": \"Tomar remédio\",\n  \"descricao\": \"Dose diária\",\n  \"data_hora_execucao\": \"2026-06-01T09:00:00Z\",\n  \"e_critica\": false,\n  \"antecedencia_min\": 30\n}" },
+        "url": { "raw": "{{baseUrl}}/grupos/{{grupoId}}/tarefas", "host": ["{{baseUrl}}"], "path": ["grupos","{{grupoId}}","tarefas"] }
+      }
+    },
+    {
+      "name": "Atualizar Status Tarefa - PATCH /tarefas/:tarefaId/status",
+      "request": {
+        "method": "PATCH",
+        "header": [ { "key": "Content-Type", "value": "application/json" }, { "key": "Authorization", "value": "Bearer {{token}}" } ],
+        "body": { "mode": "raw", "raw": "{\n  \"status\": \"concluida\"\n}" },
+        "url": { "raw": "{{baseUrl}}/tarefas/{{tarefaId}}/status", "host": ["{{baseUrl}}"], "path": ["tarefas","{{tarefaId}}","status"] }
+      }
+    }
+  ]
+}

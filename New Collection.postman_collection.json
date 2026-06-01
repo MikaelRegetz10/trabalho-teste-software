@@ -1,0 +1,482 @@
+{
+  "info": {
+    "_postman_id": "9fcb40c7-72bf-4f1e-a8e0-8b5f908b3edc",
+    "name": "New Collection",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "_exporter_id": "42475219",
+    "_collection_link": "https://go.postman.co/collection/42475219-9fcb40c7-72bf-4f1e-a8e0-8b5f908b3edc?source=collection_link"
+  },
+  "item": [
+    {
+      "name": "/auth/register",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "const res = pm.response.json();\r",
+              "if (res.token) {\r",
+              "    pm.environment.set(\"token_jwt\", res.token);\r",
+              "}"
+            ],
+            "type": "text/javascript",
+            "packages": {}
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\r\n  \"nome\": \"Carlos Administrador\",\r\n  \"email\": \"carlos@email.com\",\r\n  \"senha\": \"senhaSegura123\",\r\n  \"telefone\": \"11999999999\"\r\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{url}}/auth/register",
+          "host": [
+            "{{url}}"
+          ],
+          "path": [
+            "auth",
+            "register"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "/auth/login",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "const res = pm.response.json();\r",
+              "if (res.token) {\r",
+              "    pm.environment.set(\"token_jwt\", res.token);\r",
+              "}"
+            ],
+            "type": "text/javascript",
+            "packages": {}
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [],
+        "body": {
+          "mode": "raw",
+          "raw": "{\r\n  \"email\": \"carlos@email.com\",\r\n  \"senha\": \"senhaSegura123\"\r\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{url}}/auth/login",
+          "host": [
+            "{{url}}"
+          ],
+          "path": [
+            "auth",
+            "login"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "/grupos",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "const res = pm.response.json();\r",
+              "if (res.grupoId) {\r",
+              "    pm.environment.set(\"grupo_id\", res.grupoId);\r",
+              "}"
+            ],
+            "type": "text/javascript",
+            "packages": {}
+          }
+        }
+      ],
+      "request": {
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{token_jwt}}",
+              "type": "string"
+            }
+          ]
+        },
+        "method": "POST",
+        "header": [],
+        "body": {
+          "mode": "raw",
+          "raw": "{\r\n  \"nome_idoso\": \"Antônio Silva\",\r\n  \"data_nascimento_idoso\": \"1945-05-15\",\r\n  \"observacoes_saude\": \"Hipertensão, precisa de auxílio para caminhar.\",\r\n  \"nome_grupo\": \"Família Silva\"\r\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{url}}/grupos",
+          "host": [
+            "{{url}}"
+          ],
+          "path": [
+            "grupos"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "/grupos/grupo_id",
+      "request": {
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{token_jwt}}",
+              "type": "string"
+            }
+          ]
+        },
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{url}}/grupos/{{grupo_id}}",
+          "host": [
+            "{{url}}"
+          ],
+          "path": [
+            "grupos",
+            "{{grupo_id}}"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "/grupos/grupo_id/membros",
+      "request": {
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{token_jwt}}",
+              "type": "string"
+            }
+          ]
+        },
+        "method": "POST",
+        "header": [],
+        "body": {
+          "mode": "raw",
+          "raw": "{\r\n  \"usuario_id\": \"{{usuario_id}}\",\r\n  \"papel\": \"cuidador\"\r\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{url}}/grupos/{{grupo_id}}/membros",
+          "host": [
+            "{{url}}"
+          ],
+          "path": [
+            "grupos",
+            "{{grupo_id}}",
+            "membros"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "/grupos/grupo_id/membros/usuario_id",
+      "request": {
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{token_jwt}}",
+              "type": "string"
+            }
+          ]
+        },
+        "method": "DELETE",
+        "header": [],
+        "body": {
+          "mode": "raw",
+          "raw": "{\r\n  \"nome_idoso\": \"Antônio Silva\",\r\n  \"data_nascimento_idoso\": \"1945-05-15\",\r\n  \"observacoes_saude\": \"Hipertensão, precisa de auxílio para caminhar.\",\r\n  \"nome_grupo\": \"Família Silva\"\r\n}"
+        },
+        "url": {
+          "raw": "{{url}}/grupos/{{grupo_id}}/membros/{{usuario_id}}",
+          "host": [
+            "{{url}}"
+          ],
+          "path": [
+            "grupos",
+            "{{grupo_id}}",
+            "membros",
+            "{{usuario_id}}"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "POST {{url}}/grupos/{{grupo_id}}/convites",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "const res = pm.response.json();\r",
+              "if (res.token) {\r",
+              "    pm.environment.set(\"token_convite\", res.token);\r",
+              "}"
+            ],
+            "type": "text/javascript",
+            "packages": {}
+          }
+        }
+      ],
+      "request": {
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{token_jwt}}",
+              "type": "string"
+            }
+          ]
+        },
+        "method": "POST",
+        "header": [],
+        "body": {
+          "mode": "raw",
+          "raw": "{\r\n  \"email_convidado\": \"tio_joao@email.com\"\r\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{url}}/grupos/{{grupo_id}}/convites",
+          "host": [
+            "{{url}}"
+          ],
+          "path": [
+            "grupos",
+            "{{grupo_id}}",
+            "convites"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "POST {{url}}/convites/{{token_convite}}/recusar",
+      "request": {
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{token_jwt}}",
+              "type": "string"
+            }
+          ]
+        },
+        "method": "POST",
+        "header": [],
+        "url": {
+          "raw": "{{url}}/convites/{{token_convite}}/recusar",
+          "host": [
+            "{{url}}"
+          ],
+          "path": [
+            "convites",
+            "{{token_convite}}",
+            "recusar"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "POST {{url}}/grupos/{{grupo_id}}/tarefas",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "const res = pm.response.json();\r",
+              "if (res.tarefaId) {\r",
+              "    pm.environment.set(\"tarefa_id\", res.tarefaId);\r",
+              "}"
+            ],
+            "type": "text/javascript",
+            "packages": {}
+          }
+        }
+      ],
+      "request": {
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{token_jwt}}",
+              "type": "string"
+            }
+          ]
+        },
+        "method": "POST",
+        "header": [],
+        "body": {
+          "mode": "raw",
+          "raw": "{\r\n  \"idoso_id\": \"COLE_O_ID_DO_IDOSO_AQUI\",\r\n  \"responsavel_id\": \"COLE_O_ID_DO_USUARIO_AQUI\",\r\n  \"titulo\": \"Dar remédio de pressão\",\r\n  \"descricao\": \"1 comprimido de Losartana 50mg com água.\",\r\n  \"data_hora_execucao\": \"2026-06-01T08:00:00Z\",\r\n  \"e_critica\": true,\r\n  \"antecedencia_min\": 15\r\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{url}}/grupos/{{grupo_id}}/tarefas",
+          "host": [
+            "{{url}}"
+          ],
+          "path": [
+            "grupos",
+            "{{grupo_id}}",
+            "tarefas"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "GET {{url}}/tarefas/{{tarefa_id}}",
+      "request": {
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{token_jwt}}",
+              "type": "string"
+            }
+          ]
+        },
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{url}}/tarefas/{{tarefa_id}}",
+          "host": [
+            "{{url}}"
+          ],
+          "path": [
+            "tarefas",
+            "{{tarefa_id}}"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "PATCH {{url}}/tarefas/{{tarefa_id}}/status",
+      "request": {
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{token_jwt}}",
+              "type": "string"
+            }
+          ]
+        },
+        "method": "PATCH",
+        "header": [],
+        "body": {
+          "mode": "raw",
+          "raw": "{\r\n  \"status\": \"concluida\"\r\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{url}}/tarefas/{{tarefa_id}}/status",
+          "host": [
+            "{{url}}"
+          ],
+          "path": [
+            "tarefas",
+            "{{tarefa_id}}",
+            "status"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "GET {{url}}/grupos/{{grupo_id}}/historico",
+      "request": {
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{token_jwt}}",
+              "type": "string"
+            }
+          ]
+        },
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{url}}/grupos/{{grupo_id}}/historico",
+          "host": [
+            "{{url}}"
+          ],
+          "path": [
+            "grupos",
+            "{{grupo_id}}",
+            "historico"
+          ]
+        }
+      },
+      "response": []
+    }
+  ]
+}
